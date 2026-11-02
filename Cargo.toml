@@ -1,0 +1,3 @@
+[workspace]
+members = ["qboy-core", "qboy-desktop"]
+resolver = "3"
