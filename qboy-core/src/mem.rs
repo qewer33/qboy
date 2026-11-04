@@ -3,6 +3,7 @@ pub trait Mem {
     fn write(&mut self, addr: u16, val: u8);
 }
 
+#[derive(Copy, Clone)]
 pub struct FlatMem {
     mem: [u8; 0x10000],
 }

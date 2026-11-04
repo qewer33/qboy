@@ -1,4 +1,6 @@
-use crate::mem::Mem;
+use crate::{cpu::registers::Registers, mem::Mem};
+
+pub mod registers;
 
 /// the main DMG-CPU processing unit.
 /// owns registers and handles fetch/decode/execute
@@ -109,8 +111,100 @@ impl Cpu {
                 // write val to dst
                 self.write_reg16_bits(dest_bits, val);
             }
+            // LD a (bc)
+            0x0A => {
+                // get value at bc
+                let val = self.read_cycle(mem, self.regs.bc());
+                // set a to val
+                self.regs.a = val;
+            }
+            // LD a (de)
+            0x1A => {
+                // get value at bc
+                let val = self.read_cycle(mem, self.regs.de());
+                // set a to val
+                self.regs.a = val;
+            }
+            // LD a (hl+)
+            0x2A => {
+                // get value at hl
+                let val = self.read_cycle(mem, self.regs.hl());
+                // increment hl
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                // set a to val
+                self.regs.a = val;
+            }
+            // LD a (hl-)
+            0x3A => {
+                // get value at hl
+                let val = self.read_cycle(mem, self.regs.hl());
+                // decrement hl
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                // set a to val
+                self.regs.a = val;
+            }
+            // LD (bc) a
+            0x02 => {
+                // write value of a to bc addr
+                self.write_cycle(mem, self.regs.bc(), self.regs.a);
+            }
+            // LD (de) a
+            0x12 => {
+                // write value of a to de addr
+                self.write_cycle(mem, self.regs.de(), self.regs.a);
+            }
+            // LD (hl+) a
+            0x22 => {
+                // write value of a to hl addr
+                self.write_cycle(mem, self.regs.hl(), self.regs.a);
+                // increment hl
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+            }
+            // LD (hl-) a
+            0x32 => {
+                // write value of a to hl addr
+                self.write_cycle(mem, self.regs.hl(), self.regs.a);
+                // decrement hl
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+            }
+            // LD (u16) a
+            0xEA => {
+                // get operand
+                let addr = self.fetch16(mem);
+                // write value of a to addr
+                self.write_cycle(mem, addr, self.regs.a);
+                self.ensure_mcycles(4);
+            }
+            // LD a (u16)
+            0xFA => {
+                // get operand
+                let addr = self.fetch16(mem);
+                // get value
+                let val = self.read_cycle(mem, addr);
+                // write value to a
+                self.regs.a = val;
+                self.ensure_mcycles(4);
+            }
+            // LD (FF00+u8) a
+            0xE0 => {
+                // get operand
+                let addr_off = self.fetch(mem);
+                // write value of a to addr
+                self.write_cycle(mem, 0xFF00 + (addr_off as u16), self.regs.a);
+                self.ensure_mcycles(3);
+            }
+            // LD (FF00+u8)
+            0xF0 => {
+                // get operand
+                let addr_off = self.fetch(mem);
+                // get value
+                let val = self.read_cycle(mem, 0xFF00 + (addr_off as u16));
+                // write value to a
+                self.regs.a = val;
+                self.ensure_mcycles(3);
+            }
 
-            // jump instructions
+            // jumps & subroutine instructions
             // JP u16
             0xC3 => {
                 // set pc to operand
@@ -161,8 +255,6 @@ impl Cpu {
                     self.ensure_mcycles(2);
                 }
             }
-
-            // subroutine instructions
             // CALL u16
             0xCD => {
                 // get operand
@@ -336,7 +428,7 @@ impl Cpu {
                 self.regs.set_flags(zero, true, hcarry, carry);
             }
             // INC r8
-            0x00..=0x3F if (opcode & 0x07) == 0x03 => {
+            0x00..=0x3F if (opcode & 0x07) == 0x04 => {
                 // get reg val
                 let reg_bits = (opcode >> 3) & 0x03;
                 let val = self.read_reg_bits(mem, reg_bits);
@@ -348,7 +440,7 @@ impl Cpu {
                     .set_flags(zero, false, hcarry, self.regs.f_carry());
             }
             // DEC r8
-            0x00..=0x3F if (opcode & 0x07) == 0x0A => {
+            0x00..=0x3F if (opcode & 0x07) == 0x05 => {
                 // get reg val
                 let reg_bits = (opcode >> 3) & 0x03;
                 let val = self.read_reg_bits(mem, reg_bits);
@@ -384,7 +476,41 @@ impl Cpu {
             // AND a u8
             0xE6 => {}
 
-            _ => panic!("unknown opcode"),
+            // stack instructions
+            // PUSH r16
+            0xC5 | 0xD5 | 0xE5 => {
+                // get reg val
+                let reg_bits = (opcode >> 4) & 0x03;
+                let val = self.read_reg16_bits(reg_bits);
+                // push val to stack
+                self.stack_push16(mem, val);
+                self.ensure_mcycles(4);
+            }
+            // PUSH af
+            0xF5 => {
+                // push val to stack
+                self.stack_push16(mem, self.regs.af());
+                self.ensure_mcycles(4);
+            }
+            // POP r16
+            0xC1 | 0xD1 | 0xE1 => {
+                // pop val from stack
+                let val = self.stack_pop16(mem);
+                // write val to reg
+                let reg_bits = (opcode >> 4) & 0x03;
+                self.write_reg16_bits(reg_bits, val);
+                self.ensure_mcycles(3);
+            }
+            // POP af
+            0xF1 => {
+                // pop val from stack
+                let val = self.stack_pop16(mem);
+                // set af to val
+                self.regs.set_af(val);
+                self.ensure_mcycles(3);
+            }
+
+            _ => panic!("unknown opcode: 0x{opcode:X}"),
         }
     }
 
@@ -550,149 +676,5 @@ impl Cpu {
     /// set mcycles to a specific value
     fn ensure_mcycles(&mut self, count: u8) {
         self.mcycle = count;
-    }
-}
-
-/// DMG-CPU registers.
-///
-/// ref: https://gbdev.io/pandocs/CPU_Registers_and_Flags.htmladd
-#[derive(Default)]
-pub struct Registers {
-    pub a: u8,
-    pub f: u8,
-    pub b: u8,
-    pub c: u8,
-    pub d: u8,
-    pub e: u8,
-    pub h: u8,
-    pub l: u8,
-    pub sp: u16,
-    pub pc: u16,
-}
-
-impl Registers {
-    /// init registers as they should be after boot rom
-    ///
-    /// ref: https://github.com/robert/gameboy-doctor#2-make-2-tweaks-to-your-emulator
-    pub fn after_boot() -> Self {
-        Self {
-            a: 0x01,
-            f: 0xB0,
-            b: 0x00,
-            c: 0x13,
-            d: 0x00,
-            e: 0xD8,
-            h: 0x01,
-            l: 0x4D,
-            sp: 0xFFFE,
-            pc: 0x0100,
-        }
-    }
-
-    /// log registers in gameboy-doctor format
-    ///
-    /// ref: https://github.com/robert/gameboy-doctor#3-log-the-state-of-your-cpu
-    pub fn log_state<M: Mem>(&self, mem: M) -> String {
-        format!(
-            "A:{} F:{} B:{} C:{} D:{} E:{} H:{} L:{} SP:{} PC:{} PCMEM:{},{},{},{}",
-            self.a,
-            self.f,
-            self.b,
-            self.c,
-            self.d,
-            self.e,
-            self.h,
-            self.l,
-            self.sp,
-            self.pc,
-            mem.read(self.pc),
-            mem.read(self.pc + 1),
-            mem.read(self.pc + 2),
-            mem.read(self.pc + 3)
-        )
-    }
-
-    // pair helpers
-    pub fn bc(&self) -> u16 {
-        (self.b as u16) << 8 | self.c as u16
-    }
-
-    pub fn set_bc(&mut self, val: u16) {
-        self.b = (val >> 8) as u8;
-        self.c = val as u8; // as u8 keeps the low byte
-    }
-
-    pub fn de(&self) -> u16 {
-        (self.d as u16) << 8 | self.e as u16
-    }
-
-    pub fn set_de(&mut self, val: u16) {
-        self.d = (val >> 8) as u8;
-        self.e = val as u8;
-    }
-
-    pub fn hl(&self) -> u16 {
-        (self.h as u16) << 8 | self.l as u16
-    }
-
-    pub fn set_hl(&mut self, val: u16) {
-        self.h = (val >> 8) as u8;
-        self.l = val as u8;
-    }
-
-    // flag helpers
-    pub fn f_zero(&self) -> bool {
-        (self.f & 0x80) != 0
-    }
-
-    pub fn f_sub(&self) -> bool {
-        (self.f & 0x40) != 0
-    }
-
-    pub fn f_hcarry(&self) -> bool {
-        (self.f & 0x20) != 0
-    }
-
-    pub fn f_carry(&self) -> bool {
-        (self.f & 0x10) != 0
-    }
-
-    pub fn set_flags(&mut self, zero: bool, sub: bool, hcarry: bool, carry: bool) {
-        self.set_f_zero(zero);
-        self.set_f_sub(sub);
-        self.set_f_hcarry(hcarry);
-        self.set_f_carry(carry);
-    }
-
-    pub fn set_f_zero(&mut self, val: bool) {
-        if val {
-            self.f |= 0x80;
-        } else {
-            self.f &= !0x80;
-        }
-    }
-
-    pub fn set_f_sub(&mut self, val: bool) {
-        if val {
-            self.f |= 0x40;
-        } else {
-            self.f &= !0x40;
-        }
-    }
-
-    pub fn set_f_hcarry(&mut self, val: bool) {
-        if val {
-            self.f |= 0x20;
-        } else {
-            self.f &= !0x20;
-        }
-    }
-
-    pub fn set_f_carry(&mut self, val: bool) {
-        if val {
-            self.f |= 0x10;
-        } else {
-            self.f &= !0x10;
-        }
     }
 }

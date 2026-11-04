@@ -18,6 +18,8 @@
 - [x] 8-bit loads
   - [x] `LD r8 r8`
   - [x] `LD r8 u8`
+  - [x] `LD a [hl+]`
+  - [x] `LD a [hl-]`
 - [ ] 16-bit loads
   - [x] `LD r16 u16` 
   - [ ] `LD [r16] a` 
