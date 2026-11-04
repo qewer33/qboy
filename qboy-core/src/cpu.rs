@@ -113,12 +113,12 @@ impl Cpu {
             // jump instructions
             // JP u16
             0xC3 => {
-                // set PC to operand
+                // set pc to operand
                 self.regs.pc = self.fetch16(mem);
             }
             // JP hl
             0xE9 => {
-                // set PC to HL
+                // set pc to hl
                 self.regs.pc = self.regs.hl();
             }
             // JP cond u16
@@ -246,14 +246,14 @@ impl Cpu {
                 self.ensure_mcycles(4);
             }
 
-            //arithmetic instructions
+            // 8-bit arithmetic instructions
             // ADD a r8
             0x80..=0x87 => {
                 // get reg val
                 let reg_bits = opcode & 0x07;
                 let val = self.read_reg_bits(mem, reg_bits);
                 // perform addition
-                let (res, zero, hcarry, carry) = self.add_with_flags(self.regs.a, val);
+                let (res, zero, hcarry, carry) = self.add_with_flags(self.regs.a, val, 0);
                 // set result + flags
                 self.regs.a = res;
                 self.regs.set_flags(zero, false, hcarry, carry);
@@ -263,7 +263,7 @@ impl Cpu {
                 // get operand
                 let val = self.fetch(mem);
                 // perform addition
-                let (res, zero, hcarry, carry) = self.add_with_flags(self.regs.a, val);
+                let (res, zero, hcarry, carry) = self.add_with_flags(self.regs.a, val, 0);
                 // set result + flags
                 self.regs.a = res;
                 self.regs.set_flags(zero, false, hcarry, carry);
@@ -278,7 +278,7 @@ impl Cpu {
                     self.add_with_flags(self.regs.a, val, self.regs.f_carry() as u8);
                 // set (result + previous carry) + flags
                 self.regs.a = res;
-                self.regs.set_flags(zero, false, hcarry, carry || new_carry);
+                self.regs.set_flags(zero, false, hcarry, carry);
             }
             // ADC a u8
             0xCE => {
@@ -335,14 +335,54 @@ impl Cpu {
                 self.regs.a = res;
                 self.regs.set_flags(zero, true, hcarry, carry);
             }
+            // INC r8
+            0x00..=0x3F if (opcode & 0x07) == 0x03 => {
+                // get reg val
+                let reg_bits = (opcode >> 3) & 0x03;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // perform increment
+                let (res, zero, hcarry, _) = self.add_with_flags(val, 1, 0);
+                // set result + flags
+                self.write_reg_bits(mem, reg_bits, res);
+                self.regs
+                    .set_flags(zero, false, hcarry, self.regs.f_carry());
+            }
+            // DEC r8
+            0x00..=0x3F if (opcode & 0x07) == 0x0A => {
+                // get reg val
+                let reg_bits = (opcode >> 3) & 0x03;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // perform increment
+                let (res, zero, hcarry, _) = self.sub_with_flags(val, 1, 0);
+                // set result + flags
+                self.write_reg_bits(mem, reg_bits, res);
+                self.regs.set_flags(zero, true, hcarry, self.regs.f_carry());
+            }
+            // CP a r8
+            0xB8..=0xBF => {
+                // get reg val
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // perform subtraction
+                let (_, zero, hcarry, carry) = self.sub_with_flags(self.regs.a, val, 0);
+                // set result + flags
+                self.regs.set_flags(zero, true, hcarry, carry);
+            }
+            // CP a u8
+            0xFE => {
+                // get operand
+                let val = self.fetch(mem);
+                // perform subtraction
+                let (_, zero, hcarry, carry) = self.sub_with_flags(self.regs.a, val, 0);
+                // set result + flags
+                self.regs.set_flags(zero, true, hcarry, carry);
+            }
+
+            // logical instructions
             // AND a r8
-            0xA0..=0xA7 => {
-                
-            }
+            0xA0..=0xA7 => {}
             // AND a u8
-            0xE6 => {
-                
-            }
+            0xE6 => {}
 
             _ => panic!("unknown opcode"),
         }
