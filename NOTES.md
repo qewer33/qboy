@@ -48,3 +48,7 @@
   - [x] `CP a u8`
   - [x] `INC r8`
   - [x] `DEC r8`
+- [x] 16-bit arithmetic
+  - [x] `ADD hl r16`
+  - [x] `INC r16`
+  - [x] `DEC r16`

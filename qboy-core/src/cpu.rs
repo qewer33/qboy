@@ -466,8 +466,38 @@ impl Cpu {
                 let val = self.fetch(mem);
                 // perform subtraction
                 let (_, zero, hcarry, carry) = self.sub_with_flags(self.regs.a, val, 0);
-                // set result + flags
+                // set flags
                 self.regs.set_flags(zero, true, hcarry, carry);
+            }
+
+            // 16-bit arithmetic instructions
+            // ADD hl r16
+            0x09 | 0x19 | 0x29 | 0x39 => {
+                // get reg vall
+                let reg_bits = (opcode >> 4) & 0x03;
+                let val = self.read_reg16_bits(reg_bits);
+                // perform addition
+                let (res, _, hcarry, carry) = self.add16_with_flags(self.regs.hl(), val, 0);
+                // set result + flags
+                self.regs.set_hl(res);
+                self.regs
+                    .set_flags(self.regs.f_zero(), false, hcarry, carry);
+            }
+            // INC r16
+            0x03 | 0x13 | 0x23 | 0x33 => {
+                // get reg vall
+                let reg_bits = (opcode >> 4) & 0x03;
+                let val = self.read_reg16_bits(reg_bits);
+                // set result
+                self.write_reg16_bits(reg_bits, val.wrapping_add(1));
+            }
+            // DEC r16
+            0x0B | 0x1B | 0x2B | 0x3B => {
+                // get reg vall
+                let reg_bits = (opcode >> 4) & 0x03;
+                let val = self.read_reg16_bits(reg_bits);
+                // set result
+                self.write_reg16_bits(reg_bits, val.wrapping_sub(1));
             }
 
             // logical instructions
@@ -664,6 +694,26 @@ impl Cpu {
         let carry = res_16 < 0;
 
         (res_8, zero, hcarry, carry)
+    }
+
+    /// add the two 16-bit values and return the result along with flags
+    /// as (reults, zero, hcarry, carry)
+    fn add16_with_flags(&self, a: u16, b: u16, c: u16) -> (u16, bool, bool, bool) {
+        // widen vals
+        let a_32 = a as u32;
+        let b_32 = b as u32;
+        let c_32 = c as u32;
+
+        // calculate res
+        let res_32 = a_32 + b_32 + c_32;
+        let res_16 = res_32 as u16;
+
+        // calculate flags
+        let zero = res_16 == 0;
+        let hcarry = ((a & 0x00FF) + (b & 0x00FF) + c) > 0x00FF; // check if lower bytes overflow
+        let carry = res_32 > 0xFFFF;
+
+        (res_16, zero, hcarry, carry)
     }
 
     // misc helpers
