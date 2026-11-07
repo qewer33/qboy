@@ -22,10 +22,34 @@ impl FlatMem {
 
 impl Mem for FlatMem {
     fn read(&self, addr: u16) -> u8 {
-        self.mem[addr as usize]
+        match addr {
+            0xFF44 => 0x90, // LY reg hack for test rom pass
+            _ => self.mem[addr as usize],
+        }
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        self.mem[addr as usize] = val;
+        match addr {
+            // Serial Control Register intercept
+            0xFF02 => {
+                if (val & 0x80) != 0 {
+                    // fetch sb (0xFF01)
+                    let sb_val = self.mem[0xFF01];
+
+                    // direct to stderr
+                    eprint!("{}", sb_val as char);
+                    use std::io::Write;
+                    let _ = std::io::stderr().flush();
+
+                    // clear bit 7 to indicate transfer completion
+                    self.mem[0xFF02 as usize] = val & 0x7F;
+                } else {
+                    self.mem[addr as usize] = val;
+                }
+            }
+            _ => {
+                self.mem[addr as usize] = val;
+            }
+        }
     }
 }

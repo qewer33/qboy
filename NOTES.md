@@ -52,3 +52,8 @@
   - [x] `ADD hl r16`
   - [x] `INC r16`
   - [x] `DEC r16`
+- [x] stack push/pop
+  - [x] `PUSH r16`
+  - [x] `PUSH af`
+  - [x] `POP r16`
+  - [x] `POP af`

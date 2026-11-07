@@ -186,6 +186,7 @@ impl Cpu {
                 self.ensure_mcycles(4);
             }
             // LD (FF00+u8) a
+            // LDH u8 a
             0xE0 => {
                 // get operand
                 let addr_off = self.fetch(mem);
@@ -194,6 +195,7 @@ impl Cpu {
                 self.ensure_mcycles(3);
             }
             // LD (FF00+u8)
+            // LDH a u8
             0xF0 => {
                 // get operand
                 let addr_off = self.fetch(mem);
@@ -280,7 +282,7 @@ impl Cpu {
                     self.ensure_mcycles(6);
                 } else {
                     // increment PC over operand
-                    self.regs.pc = self.regs.pc.wrapping_add(1);
+                    self.regs.pc = self.regs.pc.wrapping_add(2);
                     self.ensure_mcycles(3);
                 }
             }
@@ -430,7 +432,7 @@ impl Cpu {
             // INC r8
             0x00..=0x3F if (opcode & 0x07) == 0x04 => {
                 // get reg val
-                let reg_bits = (opcode >> 3) & 0x03;
+                let reg_bits = (opcode >> 3) & 0x07;
                 let val = self.read_reg_bits(mem, reg_bits);
                 // perform increment
                 let (res, zero, hcarry, _) = self.add_with_flags(val, 1, 0);
@@ -442,7 +444,7 @@ impl Cpu {
             // DEC r8
             0x00..=0x3F if (opcode & 0x07) == 0x05 => {
                 // get reg val
-                let reg_bits = (opcode >> 3) & 0x03;
+                let reg_bits = (opcode >> 3) & 0x07;
                 let val = self.read_reg_bits(mem, reg_bits);
                 // perform increment
                 let (res, zero, hcarry, _) = self.sub_with_flags(val, 1, 0);
@@ -502,9 +504,56 @@ impl Cpu {
 
             // logical instructions
             // AND a r8
-            0xA0..=0xA7 => {}
+            0xA0..=0xA7 => {
+                // get reg val
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // set result + flags
+                self.regs.a = self.regs.a & val;
+                self.regs.set_flags(self.regs.a == 0, false, true, false);
+            }
             // AND a u8
-            0xE6 => {}
+            0xE6 => {
+                // get operand
+                let val = self.fetch(mem);
+                // set result + flags
+                self.regs.a = self.regs.a & val;
+                self.regs.set_flags(self.regs.a == 0, false, true, false);
+            }
+            // OR a r8
+            0xB0..=0xB7 => {
+                // get reg val
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // set result + flags
+                self.regs.a = self.regs.a | val;
+                self.regs.set_flags(self.regs.a == 0, false, false, false);
+            }
+            // OR a u8
+            0xF6 => {
+                // get operand
+                let val = self.fetch(mem);
+                // set result + flags
+                self.regs.a = self.regs.a | val;
+                self.regs.set_flags(self.regs.a == 0, false, false, false);
+            }
+            // XOR a r8
+            0xA8..=0xAF => {
+                // get reg val
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // set result + flags
+                self.regs.a = self.regs.a ^ val;
+                self.regs.set_flags(self.regs.a == 0, false, false, false);
+            }
+            // XOR a u8
+            0xEE => {
+                // get operand
+                let val = self.fetch(mem);
+                // set result + flags
+                self.regs.a = self.regs.a ^ val;
+                self.regs.set_flags(self.regs.a == 0, false, false, false);
+            }
 
             // stack instructions
             // PUSH r16
@@ -540,7 +589,67 @@ impl Cpu {
                 self.ensure_mcycles(3);
             }
 
+            // arithmetic shifts & rotates
+            // RRA
+            0x1F => {
+                // get reg value
+                let val = self.regs.a;
+                // set result + flags
+                let res = val >> 1;
+                self.regs.a = (res & !(1 << 7)) | ((self.regs.f_carry() as u8) << 7); // set carry to MSB
+                self.regs.set_flags(false, false, false, (val & 0x01) == 1);
+            }
+
+            // prefix instructions
+            // PREFIX CB
+            0xCB => {
+                // get operand & exec
+                let prefix_opcode = self.fetch(mem);
+                self.exec_prefix(prefix_opcode, mem);
+            }
+
             _ => panic!("unknown opcode: 0x{opcode:X}"),
+        }
+    }
+
+    /// decode & execute prefix instructions, called inside `exec()`
+    fn exec_prefix<M: Mem>(&mut self, opcode: u8, mem: &mut M) {
+        match opcode {
+            // SRL r8
+            0x38..=0x3F => {
+                // get reg value
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // set result + flags
+                let res = val >> 1;
+                self.write_reg_bits(mem, reg_bits, res);
+                self.regs
+                    .set_flags(res == 0, false, false, (val & 0x01) == 1);
+            }
+            // SRA r8
+            0x28..=0x2F => {
+                // get reg value
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // set result + flags
+                let res = (val as i8 >> 1) as u8; // arithmetic (signed) shift
+                self.write_reg_bits(mem, reg_bits, res);
+                self.regs
+                    .set_flags(res == 0, false, false, (val & 0x01) == 1);
+            }
+            // RR r8
+            0x18..=0x1F => {
+                // get reg value
+                let reg_bits = opcode & 0x07;
+                let val = self.read_reg_bits(mem, reg_bits);
+                // set result + flags
+                let mut res = val >> 1;
+                res = (res & !(1 << 7)) | ((self.regs.f_carry() as u8) << 7); // set carry to MSB
+                self.write_reg_bits(mem, reg_bits, res);
+                self.regs
+                    .set_flags(res == 0, false, false, (val & 0x01) == 1);
+            }
+            _ => panic!("unknown 0xCB prefix opcode: 0x{opcode:X}"),
         }
     }
 
@@ -710,7 +819,7 @@ impl Cpu {
 
         // calculate flags
         let zero = res_16 == 0;
-        let hcarry = ((a & 0x00FF) + (b & 0x00FF) + c) > 0x00FF; // check if lower bytes overflow
+        let hcarry = ((a_32 & 0x0FFF) + (b_32 & 0x0FFF) + c_32) > 0x0FFF; // check overflow from bit 11 to 12
         let carry = res_32 > 0xFFFF;
 
         (res_16, zero, hcarry, carry)
